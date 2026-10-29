@@ -1,14 +1,9 @@
 name: solana-check
 
-# Runs the 1WIN Solana programs on a real Linux toolchain.
-# Use this to get a runnable local-validator PoC without a VPS.
-#
-# Setup:
-#   1. Fork https://github.com/1win-token/1win-token-solana-programs
-#   2. Copy this file to .github/workflows/solana-check.yml in the fork
-#   3. Push. Read the logs under the Actions tab.
-#
-# Everything runs on ubuntu-latest against a local validator. Nothing touches mainnet.
+# Baseline gate for the 1WIN Solana programs.
+# Builds each program separately (the workspace root also contains host-only test
+# crates, and `cargo build-sbf` at the root tries to compile those for SBF too,
+# which fails inside getrandom), then runs the workspace tests.
 
 on:
   push:
@@ -17,7 +12,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - uses: actions/checkout@v4
@@ -34,10 +29,10 @@ jobs:
             build-essential pkg-config libssl-dev libudev-dev \
             libclang-dev clang protobuf-compiler
 
-      - name: Rust
+      - name: Rust (honours rust-toolchain.toml)
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --default-toolchain stable
+            | sh -s -- -y --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Solana CLI
@@ -49,8 +44,15 @@ jobs:
         run: |
           rustc --version && cargo --version && solana --version
 
-      - name: Build programs (SBF)
-        run: cargo build-sbf
+      - name: Build programs (SBF, one manifest each)
+        run: |
+          mkdir -p target/deploy
+          for p in sale burn vesting; do
+            echo "::group::build $p"
+            cargo build-sbf --manifest-path "programs/$p/Cargo.toml" --sbf-out-dir target/deploy
+            echo "::endgroup::"
+          done
+          ls -la target/deploy
 
       - name: Workspace tests
         run: cargo test --workspace -- --nocapture
