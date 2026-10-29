@@ -1,0 +1,66 @@
+name: solana-check
+
+# Runs the 1WIN Solana programs on a real Linux toolchain.
+# Use this to get a runnable local-validator PoC without a VPS.
+#
+# Setup:
+#   1. Fork https://github.com/1win-token/1win-token-solana-programs
+#   2. Copy this file to .github/workflows/solana-check.yml in the fork
+#   3. Push. Read the logs under the Actions tab.
+#
+# Everything runs on ubuntu-latest against a local validator. Nothing touches mainnet.
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android || true
+          df -h /
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev libudev-dev \
+            libclang-dev clang protobuf-compiler
+
+      - name: Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Solana CLI
+        run: |
+          curl -sSfL https://release.anza.xyz/stable/install | sh
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Versions
+        run: |
+          rustc --version && cargo --version && solana --version
+
+      - name: Build programs (SBF)
+        run: cargo build-sbf
+
+      - name: Workspace tests
+        run: cargo test --workspace -- --nocapture
+
+      - name: Upload program artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: program-so
+          path: |
+            target/deploy/*.so
+            target/deploy/*-keypair.json
+          if-no-files-found: warn
